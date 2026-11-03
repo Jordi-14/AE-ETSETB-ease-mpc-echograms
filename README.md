@@ -4,12 +4,28 @@ Export one echogram per listening position at 500, 1000 and 2000 Hz from an EASE
 
 Requires Python 3.10 or newer.
 
+Clone the repository and open its folder on any of the three platforms:
+
 ```sh
 git clone https://github.com/Jordi-14/AE-ETSETB-ease-mpc-echograms.git
 cd AE-ETSETB-ease-mpc-echograms
+```
+
+**macOS and Linux:**
+
+```sh
 python3 -m pip install -r requirements.txt
 python3 mpc_echograms.py "/path/to/file.mpc"
 ```
+
+**Windows (PowerShell or Command Prompt):**
+
+```powershell
+py -m pip install -r requirements.txt
+py mpc_echograms.py "C:\path\to\file.mpc"
+```
+
+Use a Python 3.10+ interpreter for both installation and execution. If your Python installation provides `python` instead of `py` or `python3`, use that command consistently. Quote file paths that contain spaces. The examples below use `python3`; on Windows, replace it with `py`. The code is intended for Windows, macOS and Linux; direct project testing so far has been on macOS.
 
 Results are saved beside the MPC in `<file name>_echograms`, with `arrivals.csv` and `summary.json`. The input MPC is never modified. Use `--output DIR` to choose another destination or `--frequencies 500 1000 2000` to select bands.
 
@@ -19,6 +35,12 @@ Add `--multiviews` to also generate the remaining region-D paths:
 
 ```sh
 python3 mpc_echograms.py "/path/to/file.mpc" --multiviews
+```
+
+Windows example with room context, kept on one line for either PowerShell or Command Prompt:
+
+```powershell
+py mpc_echograms.py "C:\path\to\file.mpc" --multiviews --context-dxf "C:\path\to\room.dxf"
 ```
 
 Each seat/source pair with D candidates gets one multiview in **PNG and PDF**, showing:
