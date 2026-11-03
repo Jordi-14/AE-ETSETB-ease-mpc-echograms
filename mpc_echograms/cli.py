@@ -60,15 +60,26 @@ def _safe_generated_path(root, relative):
     return path
 
 
-def export(dataset, output, frequencies, dpi):
+def export(dataset, output, frequencies, dpi, *, multiviews=False, context_dxf=None, context_z_offset=0.):
     from .plotting import export_images
     previous = _old_manifest(output)
+    context_edges, context_info = (), None
+    if context_dxf is not None:
+        from .context import read_context_edges
+        context_dxf = context_dxf.expanduser().resolve()
+        context_info = {'file': str(context_dxf), 'sha256': hashlib.sha256(context_dxf.read_bytes()).hexdigest(),
+                        'z_offset_m': context_z_offset}
+        context_edges = read_context_edges(context_dxf, context_z_offset)
     if previous and previous.get('input_file') != str(dataset.path):
         raise MPCError('This output folder was generated from a different MPC. Choose another --output.')
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='.mpc-echograms-', dir=output.parent) as temp:
         staging = Path(temp)
         images = export_images(dataset, staging, frequencies=tuple(frequencies), dpi=dpi)
+        extra_files, multiview_info = [], None
+        if multiviews:
+            from .multiview import export_multiviews
+            extra_files, multiview_info = export_multiviews(dataset, staging, frequencies, dpi, context_edges)
         rows = list(arrival_rows(dataset, frequencies))
         with (staging / 'arrivals.csv').open('w', newline='', encoding='utf-8') as stream:
             fields = ['source_id', 'seat_id', 'ray_id', 'frequency_Hz', 'order', 'arrival_ms',
@@ -92,6 +103,7 @@ def export(dataset, output, frequencies, dpi):
             'exported_source_ids': source_ids, 'ray_count': len(dataset.rays),
             'reflection_order_counts': dict(Counter(r.order for r in dataset.rays)),
             'frequencies_Hz': frequencies, 'image_count': len(images), 'D_candidate_counts': counts,
+            'multiviews': multiview_info, 'context_dxf': context_info,
             'haas_curve': {'time_ms': TIMES, 'relative_level_dB': LEVELS,
                            'reference': 'Approximate tracing of theatre design.pdf, page 4',
                            'range_ms': [0, 100]},
@@ -102,13 +114,17 @@ def export(dataset, output, frequencies, dpi):
                 'No direct arrival: absolute chart, no Haas classification.',
                 'Delays outside 0–100 ms are not classified against the supplied Haas diagram.',
                 'For multiple sources, normalisation and output are separate for each source.',
+                'Multiview geometry supports the observed F-number face-node layout only.',
+                'DXF context is visual only; its coordinates must match the MPC datum. No block transforms.',
             ],
-            'generated_files': sorted([str(p.relative_to(staging)) for p in images] +
+            'generated_files': sorted([str(p.relative_to(staging)) for p in images + extra_files] +
                                       ['arrivals.csv', 'summary.json']),
         }
         (staging / 'summary.json').write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + '\n')
         if hashlib.sha256(dataset.path.read_bytes()).hexdigest() != dataset.sha256:
             raise MPCError('Input MPC changed during export; no output was installed. Run again.')
+        if context_info and hashlib.sha256(context_dxf.read_bytes()).hexdigest() != context_info['sha256']:
+            raise MPCError('Context DXF changed during export; run again.')
         # Preserve unrelated files. Replace only known generated artifacts on a rerun.
         old_names = set(previous.get('generated_files', [])) if previous else set()
         for name in old_names:
@@ -138,12 +154,24 @@ def main(argv=None):
     parser.add_argument('--frequencies', type=int, nargs='+', default=[500, 1000, 2000], metavar='HZ',
                         help='Bands to export; default: 500 1000 2000')
     parser.add_argument('--dpi', type=int, default=180, help='PNG resolution; default: 180')
+    parser.add_argument('--multiviews', action='store_true',
+                        help='Also export 3D/XY/YZ/XZ D-ray views, skipping seats without D candidates')
+    parser.add_argument('--context-dxf', type=Path, help='Optional ASCII DXF backdrop (requires --multiviews)')
+    parser.add_argument('--context-z-offset', type=float, default=0., metavar='METRES',
+                        help='Add to context DXF Z coordinates only; default: 0')
     parser.add_argument('--version', action='version', version=__version__)
     args = parser.parse_args(argv)
     if args.dpi < 50 or args.dpi > 1200:
         parser.error('--dpi must be between 50 and 1200')
+    if args.context_dxf and not args.multiviews:
+        parser.error('--context-dxf requires --multiviews')
+    if args.context_z_offset and not args.context_dxf:
+        parser.error('--context-z-offset requires --context-dxf')
+    import math
+    if not math.isfinite(args.context_z_offset):
+        parser.error('--context-z-offset must be finite')
     try:
-        dataset = read_mpc(args.mpc)
+        dataset = read_mpc(args.mpc, include_geometry=args.multiviews)
         frequencies = list(dict.fromkeys(args.frequencies))
         unsupported = set(frequencies) - set(dataset.frequencies)
         if unsupported:
@@ -152,8 +180,11 @@ def main(argv=None):
                   dataset.path.with_name(dataset.path.stem + '_echograms'))
         print(f'Detected {len(dataset.seats)} seats, {len(dataset.sources)} source(s), {len(dataset.rays)} saved paths.', flush=True)
         print('Exporting images...', flush=True)
-        manifest = export(dataset, output, frequencies, args.dpi)
+        manifest = export(dataset, output, frequencies, args.dpi, multiviews=args.multiviews,
+                          context_dxf=args.context_dxf, context_z_offset=args.context_z_offset)
         print(f'Exported {manifest["image_count"]} PNG images to: {output}')
+        if manifest['multiviews'] is not None:
+            print(f"Exported {manifest['multiviews']['view_count']} D-ray multiviews (PNG + PDF) and D_ray_paths.csv.")
         print('Also saved arrivals.csv and summary.json (including region-D candidate counts).')
         return 0
     except ImportError as exc:

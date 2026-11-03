@@ -37,6 +37,8 @@ class Ray:
     order: int
     arrival_ms: float
     levels_db: tuple[float, ...]
+    reflection_points: tuple[tuple[float, float, float], ...] = ()
+    face_labels: tuple[str, ...] = ()
 
 @dataclass(frozen=True)
 class Dataset:
@@ -99,7 +101,31 @@ def _metadata(payload: bytes, count: int, source: bool = False):
     return tuple(result)
 
 
-def read_mpc(path: str | Path) -> Dataset:
+def _reflection_geometry(payload: bytes, origin: int, end: int, order: int):
+    """Read the observed named F-number face nodes; reject ambiguous geometry."""
+    points, labels = [], []
+    start = origin + 358
+    for match in re.finditer(rb'F[0-9]{1,10}', payload[start:end]):
+        label_at = start + match.start()
+        label = match.group().decode('ascii')
+        # Ignore accidental F/digit patterns inside binary floating-point values.
+        if label_at < 2 or _unpack('H', payload, label_at - 2)[0] != len(label):
+            continue
+        point_at = start + match.end() + 4
+        if point_at + 12 > end:
+            raise MPCError('Truncated reflection-point geometry.')
+        point = _unpack('fff', payload, point_at)
+        if not all(math.isfinite(value) for value in point):
+            raise MPCError('Non-finite reflection-point coordinates.')
+        labels.append(label)
+        points.append(point)
+    if len(points) != order:
+        raise MPCError(f'Unsupported reflection geometry: expected {order} F-number face nodes, '
+                       f'found {len(points)}. Run without --multiviews for echograms only.')
+    return tuple(points), tuple(labels)
+
+
+def read_mpc(path: str | Path, *, include_geometry: bool = False) -> Dataset:
     path = Path(path).expanduser().resolve()
     data = path.read_bytes()
     if not data.startswith(b'EASE') or len(data) < 32 or data[10:12] != b'MP':
@@ -118,6 +144,7 @@ def read_mpc(path: str | Path) -> Dataset:
         raise MPCError(f'Unsupported or damaged ray layout: found {len(headers)} records, '
                        f'but the file declares {count}.')
     rays = []
+    propagation_speeds = []
     for index, h in enumerate(headers):
         origin = h + 26
         end = headers[index + 1] if index + 1 < count else len(payload)
@@ -142,5 +169,18 @@ def read_mpc(path: str | Path) -> Dataset:
         emitted = _unpack('21h', payload, origin + 22)
         attenuation = _unpack('21h', payload, origin + 200)
         levels = tuple((a - b) / 100 for a, b in zip(emitted, attenuation))
-        rays.append(Ray(index + 1, seat_id, source_id, order, arrival_ms, levels))
+        points, labels = _reflection_geometry(payload, origin, end, order) if include_geometry else ((), ())
+        if include_geometry:
+            polyline = (source_by_id[source_id].position, *points, seat_by_id[seat_id].position)
+            length = sum(math.dist(a, b) for a, b in zip(polyline, polyline[1:]))
+            if length > .001 and arrival_ms > 0:
+                propagation_speeds.append(length / (arrival_ms / 1000))
+        rays.append(Ray(index + 1, seat_id, source_id, order, arrival_ms, levels, points, labels))
+    if propagation_speeds:
+        # Saved times describe propagation (source delay is separate). Reject malformed
+        # node paths instead of plotting plausible-looking but unvalidated coordinates.
+        low, high = min(propagation_speeds), max(propagation_speeds)
+        if low < 250 or high > 450 or high - low > .001 * high:
+            raise MPCError('Reflection geometry is inconsistent with saved propagation times. '
+                           'Run without --multiviews for echograms only.')
     return Dataset(path, seats, sources, tuple(rays), FREQUENCIES, hashlib.sha256(data).hexdigest())
