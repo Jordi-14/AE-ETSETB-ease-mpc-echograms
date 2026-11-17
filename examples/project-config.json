@@ -1,0 +1,14 @@
+{
+  "categories": {
+    "openings": {"faces": ["F2"], "materials": ["Example open boundary"]},
+    "audience": {"faces": [], "materials": ["Example seating"]}
+  },
+  "materials": {
+    "Example hard wall": {
+      "frequencies_Hz": [500, 1000, 2000],
+      "absorption": [0.1, 0.15, 0.2],
+      "scattering": [0.1, 0.1, 0.1],
+      "source": "Synthetic example only; replace with the actual material data and reference."
+    }
+  }
+}

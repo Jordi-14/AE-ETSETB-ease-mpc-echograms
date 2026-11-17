@@ -56,11 +56,55 @@ Every multiview contains **3D, XY, YZ and XZ** views, with Z vertical in elevati
 
 D-only views skip receiver/source pairs without D candidates. A pair with no saved direct arrival is skipped as **unclassifiable**, not reported as free of echoes. The manifest records why. All-reflection views include every declared pair, even one with no saved paths.
 
-The HTML viewer works offline in a browser. GLB files contain **line primitives**, so use a glTF viewer supporting lines. These models contain recorded paths, not reconstructed walls. Their coordinates are in metres; GLB converts MPC `(X,Y,Z)` to glTF `(X,Z,-Y)` to preserve vertical orientation.
+The HTML viewer works offline in a browser. It has source/receiver selection, all/D paths, frequency, order/relative-level/Haas-excess colours, category filters, and path inspection. GLB files contain **line primitives**, so use a glTF viewer supporting lines. The GLBs contain recorded paths, not reconstructed walls. Their coordinates are in metres; GLB converts MPC `(X,Y,Z)` to glTF `(X,Z,-Y)` to preserve vertical orientation.
+
+## Native EASE project support (1.3)
+
+Use a matching EASE project to reconstruct room polygons and associate saved reflections with native face IDs and material names:
+
+```sh
+python3 mpc_echograms.py "/path/to/results.mpc" \
+  --project "/path/to/project.frd" --interactive
+```
+
+`--project` also accepts a folder containing one supported room project. Speaker-model `.frd` files are excluded from automatic selection. If several room projects exist, select the `.frd` explicitly. Required companions are same-basename `.fvt` and `.ffc`; `.fst` is optional. All inputs are read-only.
+
+The reader supports the **observed EASE 4.4 native vertex, face and listener layouts**. It validates record sizes, closed polygon lists, vertex references, finite coordinates and file trailers; unexpected layouts fail instead of guessing. Concave faces use ear-clipping triangulation. Faces that cannot be safely triangulated remain available as wireframe with a warning.
+
+Extra outputs:
+
+| File | Contents |
+| --- | --- |
+| `project_room.json` | Native vertices, polygons, material names, geometry measurements, supplied curves and provenance. |
+| `project_faces.csv`, `project_vertices.csv` | Face and vertex lookup tables. |
+| `reflection_faces.csv` | Each saved bounce linked to its project face/material snapshot. |
+| `project_compatibility.json` | Named-face checks for saved reflection points; listener-coordinate differences and limitations. |
+| `path_categories.csv` | Explicit opening/audience tags, preserving every saved path. |
+
+The viewer adds wireframe/translucent surfaces, clickable faces, a face selector, and a path selector that highlights the route and its reflecting polygons. Face details include area, vertex-order normal, planarity deviation and front/rear material names. All rendered source/receiver positions and saved levels remain from the **MPC**, even when the project is older.
+
+Compatibility checks test each saved reflection point against the **interior/boundary of its named polygon**, not just the plane. The default tolerance is 0.01 m; change it with `--project-tolerance`. `--project-strict` rejects known reflection-point or listener-position mismatches. Matching sampled points does **not** prove unobserved geometry, whole-path visibility, material settings, or the entire project revision matches. Mirrored `F…*` references are checked at the supported YZ mirror plane; the viewer adds their referenced mirrored polygons.
+
+### Material data and project-specific categories
+
+Native face material names are decoded. **Native acoustic curves, source tables, audience-area tables and room-settings tables are not decoded in this release.** Their presence/counts are reported where available. Some projects reference external material files absent from the copy. Zero-filled catalogue metadata is never interpreted as zero absorption or scattering.
+
+Supply explicit tags and optional coefficient curves using `--project-config config.json`. An example is in `examples/project-config.json`:
+
+```sh
+python3 mpc_echograms.py "/path/to/results.mpc" \
+  --project "/path/to/project.frd" --project-config config.json --all-outputs
+```
+
+Categories match face IDs or front/rear material names. No theatre-specific IDs, layer names or guessed semantics are built into the code. Filtering opening/audience paths changes the viewer only; original echograms and arrival tables retain the saved MPC data. Missing direct sound remains unclassifiable. Audience filtering is not a scattering simulation.
+
+Material curves supplied in the configuration need increasing frequencies, coefficients in [0,1], and a `source` string. They are shown with their provenance when a face is inspected. They are **not** asserted to be the coefficients used by the MPC. Missing curves are displayed as unavailable. The project material snapshot is always labelled separately from MPC results.
+
+Native geometry, compatibility and categories are recorded in `summary.json`. Project/configuration hashes are rechecked before output installation, and existing managed-output safeguards apply to all new artifacts. Do not distribute private project files with a public code repository.
 
 ## Optional room context
 
-A matching ASCII DXF can be added as a wireframe backdrop:
+A matching ASCII DXF can alternatively be added as a wireframe backdrop (`--project` and `--context-dxf` are mutually exclusive):
 
 ```sh
 python3 mpc_echograms.py "/path/to/project.mpc" --all-outputs --context-dxf "/path/to/room.dxf"

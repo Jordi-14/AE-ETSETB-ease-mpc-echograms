@@ -1,7 +1,6 @@
 """Optional project-independent reports and recorded-ray models."""
 from contextlib import nullcontext
 import csv
-import html
 import json
 import math
 from pathlib import Path
@@ -163,83 +162,11 @@ def export_all_reflections(dataset, output, dpi=180, context_edges=(), combined_
     return files
 
 
-def export_interactive(dataset, output, frequencies, context_edges=()):
-    try:
-        import plotly.graph_objects as go
-    except ImportError as exc:
-        raise MPCError('Interactive export needs Plotly. Run: python3 -m pip install -r requirements-interactive.txt') from exc
-    selected = select_d_paths(dataset, frequencies)
-    upper = max(1., math.ceil(max((p['max_excess_dB'] for p in selected), default=0)))
-    fig, groups, choices = go.Figure(), [], []
-    first = None
-    for source in dataset.sources:
-        for seat in dataset.seats:
-            key = f'{source.id}:{seat.id}'
-            if first is None:
-                first = key
-            rays = [r for r in dataset.rays if r.source_id == source.id and r.seat_id == seat.id]
-            candidates = [p for p in selected if p['source_id'] == source.id and p['seat_id'] == seat.id]
-            choices.append({'key': key, 'label': f'Source {source.label} / Seat {seat.label}', 'D_count': len(candidates),
-                            'direct': any(r.order == 0 for r in rays)})
-            for order in sorted({r.order for r in rays if r.order > 0}):
-                xyz = [[], [], []]
-                hover = []
-                for ray in rays:
-                    if ray.order != order:
-                        continue
-                    points = ray_points(dataset, ray)
-                    for i in range(3):
-                        xyz[i].extend([p[i] for p in points] + [None])
-                    hover.extend([f'r{ray.id}; order {order}; {ray.arrival_ms:.2f} ms']*len(points)+[''])
-                fig.add_trace(go.Scatter3d(x=xyz[0], y=xyz[1], z=xyz[2], mode='lines', line={'color': order_colour(order), 'width': 2},
-                                          text=hover, hovertemplate='%{text}<extra></extra>', name=f'Order {order}', visible=key == first))
-                groups.append({'key': key, 'mode': 'all'})
-            xyz, scores, hover = [[], [], []], [], []
-            for path in candidates:
-                points = path['points']
-                for i in range(3):
-                    xyz[i].extend([p[i] for p in points]+[None])
-                scores.extend([path['max_excess_dB']]*len(points)+[0])
-                hover.extend([f"r{path['ray_id']}; +{path['max_excess_dB']:.2f} dB at {path['worst_frequency_Hz']} Hz"]*len(points)+[''])
-            fig.add_trace(go.Scatter3d(x=xyz[0], y=xyz[1], z=xyz[2], mode='lines+markers',
-                                      line={'color': scores, 'colorscale': 'Plasma_r', 'cmin': 0, 'cmax': upper, 'width': 4,
-                                            'showscale': True, 'colorbar': {'title': 'D excess (dB)'}},
-                                      marker={'size': 2, 'color': scores, 'colorscale': 'Plasma_r', 'cmin': 0, 'cmax': upper},
-                                      text=hover, hovertemplate='%{text}<extra></extra>', name='D candidates', visible=False))
-            groups.append({'key': key, 'mode': 'D'})
-            if any(r.order == 0 for r in rays):
-                p = (source.position, seat.position)
-                fig.add_trace(go.Scatter3d(x=[q[0] for q in p], y=[q[1] for q in p], z=[q[2] for q in p], mode='lines',
-                                          line={'color': '#30383d', 'dash': 'dash', 'width': 4}, name='Direct', visible=key == first))
-                groups.append({'key': key, 'mode': 'both'})
-            p = (source.position, seat.position)
-            fig.add_trace(go.Scatter3d(x=[q[0] for q in p], y=[q[1] for q in p], z=[q[2] for q in p], mode='markers+text',
-                                      text=['S: '+source.label, seat.label], marker={'size': 5, 'color': ['black', 'green']},
-                                      name='Source / receiver', visible=key == first))
-            groups.append({'key': key, 'mode': 'both'})
-    if context_edges:
-        xyz = [[p[i] for edge in context_edges for p in (*edge, (None, None, None))] for i in range(3)]
-        fig.add_trace(go.Scatter3d(x=xyz[0], y=xyz[1], z=xyz[2], mode='lines', line={'color': '#aebdc5', 'width': 1}, name='DXF context'))
-        groups.append({'key': '*', 'mode': 'both'})
-    limits = scene_limits(dataset, context_edges)
-    fig.update_layout(title='Recorded ray paths', height=800, margin={'l': 0, 'r': 0, 'b': 0, 't': 70},
-                      scene={**{f'{axis}axis': {'title': axis.upper()+' (m)', 'range': limits[i]} for i, axis in enumerate('xyz')},
-                             'aspectmode': 'data', 'camera': {'up': {'x': 0, 'y': 0, 'z': 1}}})
-    options = ''.join(f'<option value="{c["key"]}">{html.escape(c["label"])}</option>' for c in choices)
-    controls = '<div style="font:14px Arial;padding:12px"><select id="mpc-pair">'+options+'</select> <select id="mpc-mode"><option value="all">All paths: colour by order</option><option value="D">D only: colour by maximum excess</option></select><p>Drag to rotate; scroll to zoom. Recorded paths only; no room surfaces unless a DXF was supplied.</p></div>'
-    post = """const meta=META,choices=CHOICES,g=document.getElementById('{plot_id}');
-    g.insertAdjacentHTML('beforebegin',CONTROLS);
-    function update(){const k=document.getElementById('mpc-pair').value,m=document.getElementById('mpc-mode').value,c=choices.find(c=>c.key===k);
-    Plotly.restyle(g,{visible:meta.map(t=>t.key==='*'||(t.key===k&&(t.mode===m||t.mode==='both')))});
-    Plotly.relayout(g,{title:{text:c.label+(m==='D'?(c.direct?' — '+c.D_count+' D candidates':' — no direct reference; unclassifiable'):' — all saved paths')}});}
-    document.getElementById('mpc-pair').onchange=update;document.getElementById('mpc-mode').onchange=update;update();"""
-    def script_json(value):
-        # Names come from the MPC; keep them inside the script's JSON literal.
-        return json.dumps(value).replace('<', '\\u003c').replace('>', '\\u003e').replace('&', '\\u0026')
-    post = post.replace('META', script_json(groups)).replace('CHOICES', script_json(choices)).replace('CONTROLS', script_json(controls))
-    name = Path(output) / 'ray_viewer.html'
-    fig.write_html(name, include_plotlyjs=True, full_html=True, post_script=post)
-    return [name]
+def export_interactive(dataset, output, frequencies, context_edges=(), project=None, config=None, audit=None):
+    from .viewer import export_viewer
+    return export_viewer(dataset, output, frequencies, context_edges, project, config, audit)
+
+
 
 
 def _write_glb(dataset, rays, filename, scores=None):

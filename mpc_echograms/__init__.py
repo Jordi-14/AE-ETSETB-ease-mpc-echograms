@@ -1,2 +1,2 @@
 """Read EASE impact files and export echograms and ray multiviews."""
-__version__ = '1.2.0'
+__version__ = '1.3.0'

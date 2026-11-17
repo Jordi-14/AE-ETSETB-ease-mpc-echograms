@@ -2,3 +2,17 @@ __pycache__/
 *.pyc
 .venv/
 *_echograms/
+!mpc_echograms/
+*.mpc
+*.fvt
+*.ffc
+*.frd
+*.fst
+*.fld
+*.far
+*.fwm
+*.fhn
+*.fbn
+*.dxf
+*.dwg
+*.wav
