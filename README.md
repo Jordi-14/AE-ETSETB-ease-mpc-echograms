@@ -58,6 +58,75 @@ D-only views skip receiver/source pairs without D candidates. A pair with no sav
 
 The HTML viewer works offline in a browser. It has source/receiver selection, all/D paths, frequency, order/relative-level/Haas-excess colours, category filters, and path inspection. GLB files contain **line primitives**, so use a glTF viewer supporting lines. The GLBs contain recorded paths, not reconstructed walls. Their coordinates are in metres; GLB converts MPC `(X,Y,Z)` to glTF `(X,Z,-Y)` to preserve vertical orientation.
 
+## Optional: identify openings and audience
+
+Tell the viewer which faces represent openings or audience surfaces by saving a **JSON configuration file** and passing it with `--project-config`. These tags are optional: without a configuration, the tool does not automatically identify either category.
+
+### Tag faces by their EASE IDs (works with the MPC alone)
+
+Create `categories.json`, replacing the example IDs with your own EASE face numbers:
+
+```json
+{
+  "categories": {
+    "openings": {"faces": ["F2", "F3"]},
+    "audience": {"faces": ["F4", "F5"]}
+  }
+}
+```
+
+Then generate the viewer:
+
+```sh
+python3 mpc_echograms.py "/path/to/results.mpc" --interactive --project-config categories.json
+```
+
+Windows:
+
+```powershell
+py mpc_echograms.py "C:\path\to\results.mpc" --interactive --project-config categories.json
+```
+
+You can copy and edit [examples/categories-only.json](examples/categories-only.json). No absorption/scattering data is needed to use categories. You may supply just one category, omit an unused `faces`/`materials` list, or leave it empty.
+
+### Tag faces by material name (requires the native project)
+
+If the same material identifies all your openings or seating surfaces, use its EASE material name instead of listing every face:
+
+```json
+{
+  "categories": {
+    "openings": {"materials": ["Example open boundary"]},
+    "audience": {"materials": ["Example seating"]}
+  }
+}
+```
+
+Replace these names with the actual material names, then run:
+
+```sh
+python3 mpc_echograms.py "/path/to/results.mpc" --project "/path/to/project.frd" --interactive --project-config categories.json
+```
+
+Material matching needs `--project` because an MPC alone does not provide the face material table. Matching uses the front **or** rear material name, ignoring letter case; it does not use partial names or wildcards. You can inspect the face selector in the viewer or `project_faces.csv` to find IDs and material names. AutoCAD layer names and EASE audience-area objects are not used automatically.
+
+### Combine rules and use the filters
+
+You can use both selectors in the same category:
+
+```json
+{
+  "categories": {
+    "openings": {"faces": ["F2"], "materials": ["Example open boundary"]},
+    "audience": {"faces": ["F4"], "materials": ["Example seating"]}
+  }
+}
+```
+
+A face matches if its ID **or** either material name matches. A base ID such as `F2` also tags its mirrored `F2*`; listing only `F2*` tags that mirrored face alone. Check ID-based rules again after reimporting or renumbering the room.
+
+If any bounce along a path touches a tagged face, the **whole path** receives that category. A path can be tagged as both opening-dependent and audience-dependent. In `ray_viewer.html`, use **Hide opening-dependent paths** and **Hide audience paths** independently. Opening-dependent paths remain grey/dashed when shown. All saved paths remain in the data; these controls do not delete rays, recalculate acoustics, or replace the audience with a scattering simulation. The original echograms/arrival tables retain their MPC results, and `path_categories.csv` records the tags when a configuration is supplied.
+
 ## Native EASE project support (1.3)
 
 Use a matching EASE project to reconstruct room polygons and associate saved reflections with native face IDs and material names:
@@ -89,7 +158,7 @@ Compatibility checks test each saved reflection point against the **interior/bou
 
 Native face material names are decoded. **Native acoustic curves, source tables, audience-area tables and room-settings tables are not decoded in this release.** Their presence/counts are reported where available. Some projects reference external material files absent from the copy. Zero-filled catalogue metadata is never interpreted as zero absorption or scattering.
 
-Supply explicit tags and optional coefficient curves using `--project-config config.json`. An example is in `examples/project-config.json`:
+For opening/audience tags, follow [Optional: identify openings and audience](#optional-identify-openings-and-audience) above. To supply coefficient curves as well, use the same `--project-config` file; [examples/project-config.json](examples/project-config.json) contains both categories and optional curves:
 
 ```sh
 python3 mpc_echograms.py "/path/to/results.mpc" \

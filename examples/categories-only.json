@@ -1,0 +1,6 @@
+{
+  "categories": {
+    "openings": {"faces": ["F2", "F3"]},
+    "audience": {"faces": ["F4", "F5"]}
+  }
+}
