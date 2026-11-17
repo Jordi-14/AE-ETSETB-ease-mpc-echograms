@@ -51,6 +51,13 @@ class ExtraExportTests(unittest.TestCase):
             files = export_models(d, Path(tmp), [500])
             self.assertEqual([p.name for p in files], ['all_ray_paths.glb'])
 
+    def test_empty_dataset_does_not_create_invalid_glb(self):
+        d = sample()
+        d = Dataset(d.path, d.seats, d.sources, (), d.frequencies, '')
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(export_models(d, Path(tmp), [500]), [])
+            self.assertFalse(list(Path(tmp).iterdir()))
+
     def test_all_reflections_include_no_D_seat_and_all_saved_paths(self):
         with tempfile.TemporaryDirectory() as tmp:
             files = export_all_reflections(sample(), Path(tmp), 50, combined_pdf=True)

@@ -290,6 +290,8 @@ def _write_glb(dataset, rays, filename, scores=None):
 
 
 def export_models(dataset, output, frequencies):
+    if not dataset.rays:
+        return []
     selected = select_d_paths(dataset, frequencies)
     output = Path(output)
     files = [output / 'all_ray_paths.glb']

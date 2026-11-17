@@ -19,11 +19,11 @@ def record(entity_id, label, mirror_label, xyz, source=False):
 
 class MirrorMetadataTests(unittest.TestCase):
     def test_distinct_base_and_image_positions_and_names(self):
-        payload = record(1, '1', '1*', (3.7, 22., 6.8)) + record(0xffffffff, '1', '1*', (3.7, 22., 6.8))
+        payload = record(1, '1', '1*', (3., 8., 2.)) + record(0xffffffff, '1', '1*', (3., 8., 2.))
         seats = _metadata(payload, 2)
         self.assertEqual([s.label for s in seats], ['1', '1*'])
-        self.assertAlmostEqual(seats[0].position[0], 3.7, places=5)
-        self.assertAlmostEqual(seats[1].position[0], -3.7, places=5)
+        self.assertAlmostEqual(seats[0].position[0], 3., places=5)
+        self.assertAlmostEqual(seats[1].position[0], -3., places=5)
         self.assertEqual(seats[0].position[1:], seats[1].position[1:])
 
     def test_source_mirror_name_does_not_shift_coordinates(self):
@@ -44,4 +44,4 @@ class MirrorMetadataTests(unittest.TestCase):
 
     def test_truncated_mirror_metadata_rejected(self):
         with self.assertRaises(MPCError):
-            _metadata(record(1, '1', '1*', (3.7, 22., 6.8))[:-5], 1)
+            _metadata(record(1, '1', '1*', (3., 8., 2.))[:-5], 1)
