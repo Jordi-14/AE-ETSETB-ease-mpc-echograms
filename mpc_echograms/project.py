@@ -133,9 +133,9 @@ def locate_project(path):
 def read_project(path):
     base=locate_project(path);files=[];warnings=[]
     def read(ext,required=False):
-        p=base.with_suffix(ext)
+        p=Path(str(base)+ext)
         if not p.exists():
-            p=base.with_suffix(ext.upper())
+            p=Path(str(base)+ext.upper())
             if not p.exists():
                 if required:raise MPCError(f'Missing required project companion: {base.name}{ext}')
                 warnings.append(f'Missing optional companion {ext}.');return None

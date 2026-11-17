@@ -52,6 +52,14 @@ def dataset(path):
 
 
 class ProjectTests(unittest.TestCase):
+    def test_project_basename_with_dots_preserves_companion_names(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base=fixture(tmp)
+            for p in list(Path(tmp).glob('room.*')):p.rename(Path(tmp)/('room.version.one'+p.suffix))
+            project=read_project(Path(tmp)/'room.version.one.frd')
+            self.assertEqual(project.base.name,'room.version.one')
+            self.assertEqual(len(project.faces),1)
+
     def test_native_concave_polygon_names_colours_and_listeners(self):
         with tempfile.TemporaryDirectory() as tmp:
             base=fixture(tmp);p=read_project(tmp);f=p.faces[0]
