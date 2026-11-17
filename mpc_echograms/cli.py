@@ -44,7 +44,7 @@ def _old_manifest(output):
     if not output.exists() or not any(output.iterdir()):
         return None
     try:
-        manifest = json.loads((output / 'summary.json').read_text())
+        manifest = json.loads((output / 'summary.json').read_text(encoding='utf-8'))
     except (OSError, ValueError) as exc:
         raise MPCError(f'Output folder is not an export managed by this tool: {output}. '
                        'Choose a new folder with --output.') from exc
@@ -60,8 +60,14 @@ def _safe_generated_path(root, relative):
     return path
 
 
-def export(dataset, output, frequencies, dpi, *, multiviews=False, context_dxf=None, context_z_offset=0.):
+def export(dataset, output, frequencies, dpi, *, multiviews=False, context_dxf=None, context_z_offset=0.,
+           all_reflections=False, combined_pdf=False, interactive=False, models=False):
     from .plotting import export_images
+    if interactive:
+        try:
+            import plotly.graph_objects
+        except ImportError as exc:
+            raise MPCError('Interactive export needs Plotly. Run: python3 -m pip install -r requirements-interactive.txt') from exc
     previous = _old_manifest(output)
     context_edges, context_info = (), None
     if context_dxf is not None:
@@ -79,7 +85,17 @@ def export(dataset, output, frequencies, dpi, *, multiviews=False, context_dxf=N
         extra_files, multiview_info = [], None
         if multiviews:
             from .multiview import export_multiviews
-            extra_files, multiview_info = export_multiviews(dataset, staging, frequencies, dpi, context_edges)
+            extra_files, multiview_info = export_multiviews(dataset, staging, frequencies, dpi, context_edges, combined_pdf=combined_pdf)
+        if all_reflections or combined_pdf or interactive or models:
+            from . import extras
+            if all_reflections:
+                extra_files += extras.export_all_reflections(dataset, staging, dpi, context_edges, combined_pdf)
+            if combined_pdf:
+                extra_files += extras.export_combined_echograms(dataset, staging, frequencies)
+            if interactive:
+                extra_files += extras.export_interactive(dataset, staging, frequencies, context_edges)
+            if models:
+                extra_files += extras.export_models(dataset, staging, frequencies)
         rows = list(arrival_rows(dataset, frequencies))
         with (staging / 'arrivals.csv').open('w', newline='', encoding='utf-8') as stream:
             fields = ['source_id', 'seat_id', 'ray_id', 'frequency_Hz', 'order', 'arrival_ms',
@@ -104,6 +120,8 @@ def export(dataset, output, frequencies, dpi, *, multiviews=False, context_dxf=N
             'reflection_order_counts': dict(Counter(r.order for r in dataset.rays)),
             'frequencies_Hz': frequencies, 'image_count': len(images), 'D_candidate_counts': counts,
             'multiviews': multiview_info, 'context_dxf': context_info,
+            'optional_exports': {'all_reflections': all_reflections, 'combined_pdf': combined_pdf,
+                                 'interactive': interactive, 'models': models},
             'haas_curve': {'time_ms': TIMES, 'relative_level_dB': LEVELS,
                            'reference': 'Approximate tracing of theatre design.pdf, page 4',
                            'range_ms': [0, 100]},
@@ -120,7 +138,7 @@ def export(dataset, output, frequencies, dpi, *, multiviews=False, context_dxf=N
             'generated_files': sorted([str(p.relative_to(staging)) for p in images + extra_files] +
                                       ['arrivals.csv', 'summary.json']),
         }
-        (staging / 'summary.json').write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + '\n')
+        (staging / 'summary.json').write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
         if hashlib.sha256(dataset.path.read_bytes()).hexdigest() != dataset.sha256:
             raise MPCError('Input MPC changed during export; no output was installed. Run again.')
         if context_info and hashlib.sha256(context_dxf.read_bytes()).hexdigest() != context_info['sha256']:
@@ -156,22 +174,29 @@ def main(argv=None):
     parser.add_argument('--dpi', type=int, default=180, help='PNG resolution; default: 180')
     parser.add_argument('--multiviews', action='store_true',
                         help='Also export 3D/XY/YZ/XZ D-ray views, skipping seats without D candidates')
-    parser.add_argument('--context-dxf', type=Path, help='Optional ASCII DXF backdrop (requires --multiviews)')
+    parser.add_argument('--all-reflections', action='store_true', help='Export every saved path in 3D/XY/YZ/XZ views and CSV')
+    parser.add_argument('--combined-pdf', action='store_true', help='Also create combined echogram and enabled multiview PDFs')
+    parser.add_argument('--interactive', action='store_true', help='Create an offline 3D HTML viewer (requires Plotly)')
+    parser.add_argument('--models', action='store_true', help='Create portable GLB line models for all and D-only paths')
+    parser.add_argument('--all-outputs', action='store_true', help='Enable all optional exports, including the Plotly viewer')
+    parser.add_argument('--context-dxf', type=Path, help='Optional ASCII DXF backdrop for static/interactive ray views')
     parser.add_argument('--context-z-offset', type=float, default=0., metavar='METRES',
                         help='Add to context DXF Z coordinates only; default: 0')
     parser.add_argument('--version', action='version', version=__version__)
     args = parser.parse_args(argv)
     if args.dpi < 50 or args.dpi > 1200:
         parser.error('--dpi must be between 50 and 1200')
-    if args.context_dxf and not args.multiviews:
-        parser.error('--context-dxf requires --multiviews')
+    if args.all_outputs:
+        args.multiviews = args.all_reflections = args.combined_pdf = args.interactive = args.models = True
+    if args.context_dxf and not (args.multiviews or args.all_reflections or args.interactive):
+        parser.error('--context-dxf requires --multiviews, --all-reflections or --interactive')
     if args.context_z_offset and not args.context_dxf:
         parser.error('--context-z-offset requires --context-dxf')
     import math
     if not math.isfinite(args.context_z_offset):
         parser.error('--context-z-offset must be finite')
     try:
-        dataset = read_mpc(args.mpc, include_geometry=args.multiviews)
+        dataset = read_mpc(args.mpc, include_geometry=any([args.multiviews, args.all_reflections, args.interactive, args.models]))
         frequencies = list(dict.fromkeys(args.frequencies))
         unsupported = set(frequencies) - set(dataset.frequencies)
         if unsupported:
@@ -181,7 +206,9 @@ def main(argv=None):
         print(f'Detected {len(dataset.seats)} seats, {len(dataset.sources)} source(s), {len(dataset.rays)} saved paths.', flush=True)
         print('Exporting images...', flush=True)
         manifest = export(dataset, output, frequencies, args.dpi, multiviews=args.multiviews,
-                          context_dxf=args.context_dxf, context_z_offset=args.context_z_offset)
+                          context_dxf=args.context_dxf, context_z_offset=args.context_z_offset,
+                          all_reflections=args.all_reflections, combined_pdf=args.combined_pdf,
+                          interactive=args.interactive, models=args.models)
         print(f'Exported {manifest["image_count"]} PNG images to: {output}')
         if manifest['multiviews'] is not None:
             print(f"Exported {manifest['multiviews']['view_count']} D-ray multiviews (PNG + PDF) and D_ray_paths.csv.")

@@ -15,6 +15,11 @@ def _safe_label(label: str) -> str:
     return re.sub(r"[^A-Za-z0-9_-]+", "_", text).strip("_-")[:64] or "unnamed"
 
 
+def _id_slug(entity_id: int) -> str:
+    """Readable filenames for EASE's uint32-encoded negative image IDs."""
+    return f'mirror_{2 ** 32 - entity_id:03}' if entity_id >= 2 ** 31 else f'{entity_id:03}'
+
+
 def _finite(value) -> bool:
     try:
         return math.isfinite(float(value))
@@ -139,7 +144,7 @@ def export_images(dataset, output_dir: Path, frequencies: tuple[int, ...] = (500
     with plt.rc_context({"font.family": "DejaVu Sans", "font.size": 9,
                          "axes.spines.top": False, "axes.spines.right": False}):
         for source in sources:
-            directory = output_dir / f"source_{source.id:03}_{_safe_label(source.label)}" if multi_source else output_dir
+            directory = output_dir / f"source_{_id_slug(source.id)}_{_safe_label(source.label)}" if multi_source else output_dir
             directory.mkdir(parents=True, exist_ok=True)
             for seat in dataset.seats:
                 impacts = [r for r in dataset.rays if r.source_id == source.id and r.seat_id == seat.id]
@@ -162,7 +167,7 @@ def export_images(dataset, output_dir: Path, frequencies: tuple[int, ...] = (500
                         fig.text(.5, .025,
                                  "Approximate assignment Haas curve (0–100 ms). Individual paths; no time-bin energy summation. Confirm borderline cases in Probe.",
                                  ha="center", fontsize=7.5)
-                        path = directory / f"seat_{seat.id:03}_{_safe_label(seat.label)}_{frequency}Hz.png"
+                        path = directory / f"seat_{_id_slug(seat.id)}_{_safe_label(seat.label)}_{frequency}Hz.png"
                         fig.savefig(path, dpi=dpi, facecolor="white")
                         paths.append(path)
                     finally:

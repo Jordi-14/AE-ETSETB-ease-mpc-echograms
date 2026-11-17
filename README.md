@@ -1,77 +1,91 @@
 # EASE MPC Echograms
 
-Export one echogram per listening position at 500, 1000 and 2000 Hz from an EASE MPC file. Seats are detected automatically. Each image includes a Haas diagram overlay and highlights region-D candidates.
+Export echograms and recorded ray paths from EASE MPC impact files. Sources and receivers are detected from the file, including mirrored receivers such as `1*`. No DXF is required.
 
-Requires Python 3.10 or newer.
+Requires Python 3.10+. The default export uses Matplotlib. The optional offline interactive viewer also uses Plotly.
 
-Clone the repository and open its folder on any of the three platforms:
+## Quick start
 
 ```sh
 git clone https://github.com/Jordi-14/AE-ETSETB-ease-mpc-echograms.git
 cd AE-ETSETB-ease-mpc-echograms
-```
-
-**macOS and Linux:**
-
-```sh
 python3 -m pip install -r requirements.txt
-python3 mpc_echograms.py "/path/to/file.mpc"
+python3 mpc_echograms.py "/path/to/project.mpc"
 ```
 
-**Windows (PowerShell or Command Prompt):**
+On Windows, use `py` instead of `python3` in these commands. Quote paths containing spaces. Use the same Python interpreter for installation and execution.
 
-```powershell
-py -m pip install -r requirements.txt
-py mpc_echograms.py "C:\path\to\file.mpc"
-```
+The default produces one PNG per source, receiver and selected frequency, plus `arrivals.csv` and `summary.json`. Default bands are **500, 1000 and 2000 Hz**. Results go beside the MPC in `<name>_echograms`; use `--output DIR` to choose another folder. The source MPC is never modified.
 
-Use a Python 3.10+ interpreter for both installation and execution. If your Python installation provides `python` instead of `py` or `python3`, use that command consistently. Quote file paths that contain spaces. The examples below use `python3`; on Windows, replace it with `py`. The code is intended for Windows, macOS and Linux; direct project testing so far has been on macOS.
+## Generate everything
 
-Results are saved beside the MPC in `<file name>_echograms`, with `arrivals.csv` and `summary.json`. The input MPC is never modified. Use `--output DIR` to choose another destination or `--frequencies 500 1000 2000` to select bands.
-
-## Ray multiviews
-
-Add `--multiviews` to also generate the remaining region-D paths:
+Install the interactive dependency and enable every export:
 
 ```sh
-python3 mpc_echograms.py "/path/to/file.mpc" --multiviews
+python3 -m pip install -r requirements-interactive.txt
+python3 mpc_echograms.py "/path/to/project.mpc" --all-outputs
 ```
 
-Windows example with room context, kept on one line for either PowerShell or Command Prompt:
+Windows:
 
 ```powershell
-py mpc_echograms.py "C:\path\to\file.mpc" --multiviews --context-dxf "C:\path\to\room.dxf"
+py -m pip install -r requirements-interactive.txt
+py mpc_echograms.py "C:\path\to\project.mpc" --all-outputs
 ```
 
-Each seat/source pair with D candidates gets one multiview in **PNG and PDF**, showing:
+This includes the default echograms and:
 
-- 3D perspective, plan XY, side elevation YZ and front elevation XZ; Z stays vertical in elevations.
-- Every D-candidate path once, coloured by its **largest excess above the Haas boundary** across the selected frequency bands.
-- A shared colour scale across all seats and sources, with a dashed direct path and marked reflection points.
+| Option | Output |
+| --- | --- |
+| `--multiviews` | PNG/PDF D-only ray views, plus `D_ray_paths.csv`. |
+| `--all-reflections` | PNG/PDF views of every saved path, plus `all_ray_paths.csv`. |
+| `--combined-pdf` | `echograms.pdf`, with up to three bands per receiver/source page; combined PDFs for enabled ray views. |
+| `--interactive` | Self-contained `ray_viewer.html`: rotate/zoom, choose a source/receiver pair, switch between all paths and D candidates. Requires Plotly. |
+| `--models` | `all_ray_paths.glb` and, when D candidates exist, `D_ray_paths.glb`. No Plotly required. |
+| `--all-outputs` | All the options above. |
 
-Seats with no D candidates are skipped. Seats without a saved direct arrival are skipped as unclassifiable, not reported as free of echoes. The manifest records the reason. `D_ray_paths.csv` lists every candidate's source/seat/path IDs, arrival time, delay, maximum excess, frequency bands, face sequence and XYZ path coordinates. Coincident projected segments can overlap.
-
-Multiview geometry is decoded from the MPC itself. No DXF is required. To add a room wireframe:
+Options can be combined independently:
 
 ```sh
-python3 mpc_echograms.py "/path/to/file.mpc" --multiviews \
-  --context-dxf "/path/to/room.dxf"
+python3 mpc_echograms.py "/path/to/project.mpc" --multiviews --combined-pdf
+python3 mpc_echograms.py "/path/to/project.mpc" --all-reflections --models
+python3 mpc_echograms.py "/path/to/project.mpc" --frequencies 500 1000 --dpi 220
 ```
 
-The DXF is a visual backdrop only. Its coordinates and metre units must match the MPC. If its Z datum differs, `--context-z-offset 0.9` adds 0.9 m to the **DXF only**, without moving the recorded rays. The context reader accepts model-space `3DFACE` and closed 3D `POLYLINE` entities in ASCII DXF; blocks, inserts, 2D entities and binary DXF are not supported. It does not repair or transform the model automatically.
+Every multiview contains **3D, XY, YZ and XZ** views, with Z vertical in elevations. D views show each physical path once, coloured by its largest excess across the selected bands, using a shared scale. All-reflection views use colour for reflection order. Coincident projected paths can overlap.
 
-## Interpretation and supported files
+D-only views skip receiver/source pairs without D candidates. A pair with no saved direct arrival is skipped as **unclassifiable**, not reported as free of echoes. The manifest records why. All-reflection views include every declared pair, even one with no saved paths.
 
-Tested with EASE 4.4 MPC exports. The reader supports an observed binary layout, not a published AFMG interchange specification. Multiviews additionally require the observed named `F<number>` reflection-node layout. Geometry is checked against reflection order, finite coordinates and propagation-time consistency; unsupported geometry is rejected. Run without `--multiviews` when only the echogram layout is supported.
+The HTML viewer works offline in a browser. GLB files contain **line primitives**, so use a glTF viewer supporting lines. These models contain recorded paths, not reconstructed walls. Their coordinates are in metres; GLB converts MPC `(X,Y,Z)` to glTF `(X,Z,-Y)` to preserve vertical orientation.
 
-The Haas boundary approximates the diagram in the ETSETB theatre assignment (`theatre design.pdf`, page 4), over **0–100 ms after the direct arrival**. It is not a universal echo audibility standard. Each band is normalised to its own direct sound; excess is the reflection's relative level minus the diagram boundary at that delay. Check borderline cases in EASE Probe. Counts describe individual paths, without time-bin energy summation or a synthetic reverberation tail. A multiview shows ray paths, not sound-energy coverage.
+## Optional room context
 
-Reruns replace only files recorded in the previous manifest, preserving unrelated files. Reusing an output directory generated from another MPC is rejected. Rerunning without `--multiviews` removes the previously managed multiview files.
+A matching ASCII DXF can be added as a wireframe backdrop:
 
-## Checks
+```sh
+python3 mpc_echograms.py "/path/to/project.mpc" --all-outputs --context-dxf "/path/to/room.dxf"
+```
+
+The context is used in static ray views and the interactive viewer, not the GLB ray-only models. It is visual context, not a visibility or geometry validation. Coordinates and metre units must match the MPC. `--context-z-offset 0.9` adds 0.9 m to the DXF only.
+
+The DXF reader accepts model-space `3DFACE` and closed 3D `POLYLINE` entities. Blocks, inserts, 2D entities and binary DXFs are not supported. No automatic repair or block transformation is performed.
+
+## Compatibility and interpretation
+
+The reader supports **observed EASE 4.x binary layouts tested with EASE 4.4 exports**, rather than a published AFMG interchange specification. It supports empty or populated mirror-name fields, YZ-mirrored entity coordinates and reflection labels such as `F2*`. Raw unsigned IDs are retained in data tables; filenames use readable names such as `mirror_001`.
+
+Unexpected layouts are rejected instead of drawing unvalidated geometry. Ray exports additionally validate face-node counts, endpoint coordinates and propagation-time consistency. If an export contains unsupported reflection geometry, the basic echograms may still work without ray-view/model options.
+
+The Haas boundary approximates the **ETSETB theatre assignment diagram**, over **0–100 ms after the direct arrival**. It is not a universal echo audibility standard. Each band is normalised to its own direct sound. Excess is the reflection's relative level minus the boundary at the same delay. Check borderline cases in EASE Probe.
+
+Counts describe individual saved paths, without time-bin energy summation or an artificial reverberation tail. Delays outside the diagram are unclassified. Multiple sources are analysed separately. Only paths retained in the MPC can be shown; no new acoustic simulation is performed.
+
+Reruns replace only artifacts listed in the previous manifest and preserve unrelated files. Turning options off removes their previously managed files. Output installation is staged; a failure or changing input leaves the previous export intact. Output folders generated from a different MPC are rejected.
+
+## Tests
 
 ```sh
 python3 -m unittest discover -s tests -v
 ```
 
-Tests use synthetic geometry and results; no project MPC, DXF, private coordinates or generated plots are included in this repository.
+Fixtures are synthetic; no private MPCs, DXFs, coordinates or generated project images are included. Regression coverage includes mirror metadata, mirrored face labels, multiple-source normalisation, missing direct sound, optional exports, GLB structure and safe reruns. CI checks Windows, macOS and Linux with Python 3.10 and 3.12. Local project verification has been performed on macOS.

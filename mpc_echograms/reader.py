@@ -87,11 +87,22 @@ def _metadata(payload: bytes, count: int, source: bool = False):
         length_at = 20 if source else 8
         label_length, = _unpack('H', body, length_at)
         label_start = length_at + 2
-        xyz_at = label_start + label_length + 10
+        # A second length-prefixed label stores the mirror-image name. It is
+        # empty in our first fixture, but populated in symmetric EASE projects.
+        mirror_length_at = label_start + label_length
+        mirror_length, = _unpack('H', body, mirror_length_at)
+        mirror_start = mirror_length_at + 2
+        xyz_at = mirror_start + mirror_length + 8
         if xyz_at + 12 > len(body):
             raise MPCError('Invalid label or coordinate length in source/seat metadata.')
         label = body[label_start:label_start + label_length].decode('cp1252', errors='replace').rstrip('\0')
+        if entity_id >= 2 ** 31 and mirror_length:
+            label = body[mirror_start:mirror_start + mirror_length].decode('cp1252', errors='replace').rstrip('\0')
         position = _unpack('fff', body, xyz_at)
+        # EASE's negative (uint32-encoded) image IDs retain the base entity's
+        # coordinates in metadata. Their saved rays use the YZ-mirrored point.
+        if entity_id >= 2 ** 31:
+            position = (-position[0], position[1], position[2])
         if entity_id <= 0 or entity_id in seen or not all(math.isfinite(v) for v in position):
             raise MPCError('Duplicate/invalid source or seat ID, or invalid coordinates.')
         seen.add(entity_id)
@@ -105,7 +116,7 @@ def _reflection_geometry(payload: bytes, origin: int, end: int, order: int):
     """Read the observed named F-number face nodes; reject ambiguous geometry."""
     points, labels = [], []
     start = origin + 358
-    for match in re.finditer(rb'F[0-9]{1,10}', payload[start:end]):
+    for match in re.finditer(rb'F[0-9]{1,10}\*?', payload[start:end]):
         label_at = start + match.start()
         label = match.group().decode('ascii')
         # Ignore accidental F/digit patterns inside binary floating-point values.
