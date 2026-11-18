@@ -93,6 +93,10 @@
     document.getElementById('face-pick').value=f?f.label:'';
     const chart=document.getElementById('material-chart');chart.hidden=true;
     if(f){paragraph(fi,`${f.label} · ${f.area_m2.toFixed(3)} m² · ${f.vertex_ids.length} vertices · normal (${f.normal.map(v=>v.toFixed(4)).join(', ')}).`);
+      const hex=f.colour_hex||'#'+f.colour_rgb.map(v=>v.toString(16).padStart(2,'0')).join('').toUpperCase();
+      const ease=f.colour_ease??f.colour_rgb[0]+256*f.colour_rgb[1]+65536*f.colour_rgb[2];
+      const colourLine=paragraph(fi,`Face colour: ${hex} · RGB (${f.colour_rgb.join(', ')}) · EASE ${ease}.`);
+      const swatch=document.createElement('span');swatch.className='colour-swatch';swatch.style.backgroundColor=hex;swatch.setAttribute('aria-label',`Face colour ${hex}`);colourLine.prepend(swatch);
       paragraph(fi,`Project front: ${f.material_front||'unassigned'}; rear: ${f.material_rear||'unassigned'}. Planarity deviation: ${f.planarity_error_m.toExponential(2)} m. These materials are not confirmed as those used by the MPC.`);
       if(f.triangulation_error)paragraph(fi,f.triangulation_error);
       const curves=[];for(const [side,name]of [['Front',f.material_front],['Rear',f.material_rear]]){const m=data.config.materials[name];

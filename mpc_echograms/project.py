@@ -162,6 +162,7 @@ def read_project(path):
         faces.append({'id':i,'label':f'F{i}','vertex_ids':ids,'material_front':front,'material_rear':rear,
                       'material_front_index':front_id,'material_rear_index':rear_id,'material_reference_flags':[front_flags,rear_flags],
                       'raw_flags':struct.unpack_from('<I',prefix,136)[0],'colour_rgb':[colour&255,(colour>>8)&255,(colour>>16)&255],
+                      'colour_hex':f'#{colour&255:02X}{(colour>>8)&255:02X}{(colour>>16)&255:02X}','colour_ease':colour&0xffffff,
                       'area_m2':area,'stored_area_m2':stored_area,'normal':normal,'planarity_error_m':deviation,
                       'triangles':triangles,'triangulation_error':tri_error})
     if reader.take(len(fb)-reader.pos)!=bytes(128):raise MPCError('Unsupported native face-table trailer.')

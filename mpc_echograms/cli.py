@@ -72,6 +72,8 @@ def export(dataset, output, frequencies, dpi, *, multiviews=False, context_dxf=N
     previous = _old_manifest(output)
     from .project_config import read_config, ray_categories
     config=read_config(project_config)
+    if project_path is None and any(r.get('materials') or r.get('colors') for r in config['categories'].values()):
+        raise MPCError('Material/color category rules require --project; use face IDs for MPC-only exports.')
     project,project_audit,project_info=None,None,None
     context_edges, context_info = (), None
     if project_path is not None:
@@ -222,7 +224,7 @@ def main(argv=None):
     parser.add_argument('--all-outputs', action='store_true', help='Enable all optional exports, including the Plotly viewer')
     parser.add_argument('--context-dxf', type=Path, help='Optional ASCII DXF backdrop for static/interactive ray views')
     parser.add_argument('--project',type=Path,help='Native EASE project folder or .frd file; reads .fvt/.ffc and optional companions')
-    parser.add_argument('--project-config',type=Path,help='JSON face/material categories and optional coefficient curves with provenance')
+    parser.add_argument('--project-config',type=Path,help='JSON categories by face ID, material or colour, and optional sourced coefficient curves')
     parser.add_argument('--project-tolerance',type=float,default=.01,metavar='METRES',help='Reflection point and listener compatibility tolerance; default 0.01 m')
     parser.add_argument('--project-strict',action='store_true',help='Reject known geometry/listener mismatches instead of exporting them with warnings')
     parser.add_argument('--context-z-offset', type=float, default=0., metavar='METRES',

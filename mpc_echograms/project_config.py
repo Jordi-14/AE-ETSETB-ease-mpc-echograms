@@ -7,6 +7,16 @@ import re
 from .reader import MPCError
 
 
+def colour_rgb(value):
+    """Convert #RRGGBB, RGB bytes, or EASE/Windows R+256G+65536B."""
+    if isinstance(value,str) and re.fullmatch(r'#[0-9a-fA-F]{6}',value):
+        return tuple(int(value[i:i+2],16) for i in [1,3,5])
+    if isinstance(value,int) and not isinstance(value,bool) and 0<=value<=0xffffff:
+        return value&255,(value>>8)&255,(value>>16)&255
+    if isinstance(value,(list,tuple)) and len(value)==3 and all(isinstance(x,int) and not isinstance(x,bool) and 0<=x<=255 for x in value):return tuple(value)
+    raise MPCError('Category colors must be #RRGGBB strings, [R,G,B] byte triples, or EASE colour integers from 0 to 16777215 (not AutoCAD ACI indices).')
+
+
 def read_config(path):
     if path is None:return {'categories':{},'materials':{},'provenance':None}
     path=Path(path).expanduser().resolve()
@@ -16,8 +26,12 @@ def read_config(path):
     categories=value.get('categories',{});materials=value.get('materials',{})
     if not isinstance(categories,dict) or set(categories)-{'openings','audience'}:raise MPCError('Supported categories: openings, audience.')
     for name,rule in categories.items():
-        if not isinstance(rule,dict) or set(rule)-{'faces','materials'}:raise MPCError(f'Invalid category rule: {name}')
+        if not isinstance(rule,dict) or set(rule)-{'faces','materials','colors'}:raise MPCError(f'Invalid category rule: {name}')
         for k,v in rule.items():
+            if k=='colors':
+                if not isinstance(v,list):raise MPCError(f'{name}.colors must be a list.')
+                for colour in v:colour_rgb(colour)
+                continue
             if not isinstance(v,list) or not all(isinstance(x,str) for x in v):raise MPCError(f'{name}.{k} must be a list of strings.')
             if k=='faces' and any(not re.fullmatch(r'F[1-9][0-9]*\*?',x) for x in v):raise MPCError('Invalid face ID in config.')
     if not isinstance(materials,dict):raise MPCError('materials must map material names to curves.')
@@ -38,9 +52,9 @@ def ray_categories(ray,project,config):
     faces={f['label']:f for f in project.faces} if project else {}
     tags={}
     for category,rule in config['categories'].items():
-        ids=set(rule.get('faces',[]));names={s.casefold() for s in rule.get('materials',[])};hits=[]
+        ids=set(rule.get('faces',[]));names={s.casefold() for s in rule.get('materials',[])};colours={colour_rgb(c) for c in rule.get('colors',[])};hits=[]
         for label in ray.face_labels:
             f=faces.get(label.rstrip('*'));mats=[f['material_front'],f['material_rear']] if f else []
-            if label in ids or label.rstrip('*') in ids or any(m.casefold() in names for m in mats):hits.append(label)
+            if label in ids or label.rstrip('*') in ids or any(m.casefold() in names for m in mats) or (f and tuple(f['colour_rgb']) in colours):hits.append(label)
         tags[category]=hits
     return tags

@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from mpc_echograms.project import read_project, audit_project, triangulate, polygon_geometry, point_on_face
-from mpc_echograms.project_config import read_config, ray_categories
+from mpc_echograms.project_config import read_config, ray_categories, colour_rgb
 from mpc_echograms.reader import MPCError, Dataset, Seat, Source, Ray
 from mpc_echograms.cli import export, main
 
@@ -52,6 +52,33 @@ def dataset(path):
 
 
 class ProjectTests(unittest.TestCase):
+    def test_colour_formats_and_invalid_values(self):
+        for value in ['#563412','#563412'.lower(),[86,52,18],0x123456]:
+            self.assertEqual(colour_rgb(value),(86,52,18))
+        self.assertEqual(colour_rgb(255),(255,0,0))
+        self.assertEqual(colour_rgb('#0000FF'),(0,0,255))
+        for bad in [True,-1,16777216,'red','#abc','#GG0000',[256,0,0],[1.,2,3],[True,0,0],[1,2],None]:
+            with self.subTest(value=bad),self.assertRaises(MPCError):colour_rgb(bad)
+
+    def test_colour_category_is_independent_of_material_and_supports_mirrors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=read_project(fixture(tmp).with_suffix('.frd'));d=dataset(Path(tmp)/'r.mpc');c=Path(tmp)/'config.json'
+            for value in ['#563412',[86,52,18],0x123456]:
+                c.write_text(json.dumps({'categories':{'openings':{'colors':[value]}}}));config=read_config(c)
+                self.assertEqual(ray_categories(d.rays[1],p,config)['openings'],['F1'])
+                p.faces[0]['material_front']='Different material'
+                self.assertEqual(ray_categories(d.rays[1],p,config)['openings'],['F1'])
+                mirror=Ray(9,1,1,1,70.,(72.,73.),((-1.,1.,0.),),('F1*',))
+                self.assertEqual(ray_categories(mirror,p,config)['openings'],['F1*'])
+            c.write_text(json.dumps({'categories':{'openings':{'colors':['#000000'],'faces':['F1']}}}))
+            self.assertEqual(ray_categories(d.rays[1],p,read_config(c))['openings'],['F1'])
+
+    def test_colour_rules_require_project_for_cli_export(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d=dataset(Path(tmp)/'r.mpc');c=Path(tmp)/'config.json';c.write_text(json.dumps({'categories':{'audience':{'colors':[255]}}}))
+            with self.assertRaisesRegex(MPCError,'require --project'):export(d,Path(tmp)/'out',[500],50,project_config=c)
+            self.assertFalse((Path(tmp)/'out').exists())
+
     def test_project_basename_with_dots_preserves_companion_names(self):
         with tempfile.TemporaryDirectory() as tmp:
             base=fixture(tmp)

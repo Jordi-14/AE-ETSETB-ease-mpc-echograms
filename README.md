@@ -110,20 +110,51 @@ python3 mpc_echograms.py "/path/to/results.mpc" --project "/path/to/project.frd"
 
 Material matching needs `--project` because an MPC alone does not provide the face material table. Matching uses the front **or** rear material name, ignoring letter case; it does not use partial names or wildcards. You can inspect the face selector in the viewer or `project_faces.csv` to find IDs and material names. AutoCAD layer names and EASE audience-area objects are not used automatically.
 
-### Combine rules and use the filters
+### Tag faces by colour (requires the native project)
 
-You can use both selectors in the same category:
+If you gave each CAD layer a different colour and retained those colours in EASE, you can classify the faces by their **saved EASE face colour**, independently of their acoustic materials:
 
 ```json
 {
   "categories": {
-    "openings": {"faces": ["F2"], "materials": ["Example open boundary"]},
-    "audience": {"faces": ["F4"], "materials": ["Example seating"]}
+    "openings": {"colors": ["#FF0000", "#FFFF00"]},
+    "audience": {"colors": ["#0000FF"]}
   }
 }
 ```
 
-A face matches if its ID **or** either material name matches. A base ID such as `F2` also tags its mirrored `F2*`; listing only `F2*` tags that mirrored face alone. Check ID-based rules again after reimporting or renumbering the room.
+Replace these illustrative colours with your own. Run with both `--project` and `--project-config`, as in the material-name example. You can copy [examples/categories-by-colour.json](examples/categories-by-colour.json).
+
+The JSON key is **`colors`**. Each item can use any of these equivalent formats:
+
+| Format | Example: red |
+| --- | --- |
+| Hex RGB | `"#FF0000"` |
+| RGB byte triple | `[255, 0, 0]` |
+| EASE/Windows colour number | `255` |
+
+RGB triples must be nested inside the colour list: `"colors": [[255, 0, 0]]` means red. By contrast, `"colors": [255, 0, 0]` is a list of three EASE colour numbers. You can mix formats, for example `"colors": ["#FF0000", [0, 255, 0], 16711680]` selects red, green and blue.
+
+EASE numbers use **R + 256×G + 65536×B**. They are not AutoCAD ACI indices or ordinary `0xRRGGBB` numbers. For example, EASE blue is `16711680`, while its hex RGB is `"#0000FF"`.
+
+To find the correct value, inspect a face in the viewer: it shows a colour swatch, hex, RGB and EASE number. The same values appear as `colour_hex`, `colour_rgb` and `colour_ease` in `project_faces.csv`. Matching is exact, with no nearest-colour guessing.
+
+This does not recover layer names. It works as a layer proxy only when the relevant layers have distinct, consistent face colours. If EASE changes those colours or two layers share a colour, check your rules. Changing a material alone does not affect a colour rule.
+
+### Combine rules and use the filters
+
+You can combine face IDs, materials and colours in the same category:
+
+```json
+{
+  "categories": {
+    "openings": {"faces": ["F2"], "materials": ["Example open boundary"], "colors": ["#FF0000"]},
+    "audience": {"faces": ["F4"], "materials": ["Example seating"], "colors": ["#0000FF"]}
+  }
+}
+```
+
+A face matches if its ID **or** either material name **or** its colour matches. A base ID such as `F2` also tags its mirrored `F2*`; listing only `F2*` tags that mirrored face alone. Colour rules also apply to mirrored faces. Check ID-based rules again after reimporting or renumbering the room.
 
 If any bounce along a path touches a tagged face, the **whole path** receives that category. A path can be tagged as both opening-dependent and audience-dependent. In `ray_viewer.html`, use **Hide opening-dependent paths** and **Hide audience paths** independently. Opening-dependent paths remain grey/dashed when shown. All saved paths remain in the data; these controls do not delete rays, recalculate acoustics, or replace the audience with a scattering simulation. The original echograms/arrival tables retain their MPC results, and `path_categories.csv` records the tags when a configuration is supplied.
 
