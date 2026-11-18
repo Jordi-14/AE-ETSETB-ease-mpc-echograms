@@ -45,15 +45,15 @@
       x.push(null);y.push(null);z.push(null);hover.push('');rayIds.push(null);values.push(scale?.min||0);
     }
     const trace={type:'scatter3d',mode:'lines',x,y,z,text:hover,customdata:rayIds,hovertemplate:'%{text}<extra></extra>',name:style.name,
-      opacity:style.ghost?0.4:0.88,line:{width:3,dash:style.dashed?'dash':'solid',color:style.colour},showlegend:style.showLegend!==false,legendgroup:style.legendGroup};
-    if (scale && !style.ghost) {
+      opacity:0.88,line:{width:3,dash:style.dashed?'dash':'solid',color:style.colour},showlegend:style.showLegend!==false,legendgroup:style.legendGroup};
+    if (scale) {
       trace.line={width:3,dash:style.dashed?'dash':'solid',color:values,cmin:scale.min,cmax:scale.max,colorscale:state.colour==='excess'?plasma:'Viridis',reversescale:state.colour==='excess',showscale:style.showScale!==false,
         colorbar:{title:{text:state.colour==='excess'?'Haas excess<br>(dB)':'Relative level<br>(dB)'},thickness:17,len:.72,x:1.015,tickformat:'.0f',outlinewidth:0}};
     }
     return trace;
   }
   function scaleFor(state) {
-    const scores=data.rays.filter(r=>!r.openings.length && (!state.hideAudience || !r.audience.length) && chosen(r,state)).map(r=>score(r,state)?.value).filter(Number.isFinite);
+    const scores=data.rays.filter(r=>(!state.hideOpenings || !r.openings.length) && (!state.hideAudience || !r.audience.length) && chosen(r,state)).map(r=>score(r,state)?.value).filter(Number.isFinite);
     if (!scores.length) return {min:0,max:1};
     const min=state.paths==='D'&&state.colour==='excess'?0:Math.floor(Math.min(...scores)/5)*5;
     const max=state.paths==='D'&&state.colour==='excess'?Math.max(1,Math.ceil(Math.max(...scores))):Math.ceil(Math.max(...scores)/5)*5;
@@ -116,6 +116,101 @@
     banner.textContent=p?`${p.face_count} native faces · ${p.vertex_count} vertices · ${p.compatibility.matched_nodes}/${p.compatibility.checked_nodes} sampled reflection nodes match at ${p.compatibility.tolerance_m} m. Project material settings are not verified against the MPC.`:'MPC-only view. No native project face/material data supplied.';
     document.getElementById('project-details').textContent=p?`${p.compatibility.warnings.join(' ')} Geometry not hit by saved paths cannot be validated against the MPC. Material curves shown here, if provided, come from the explicit configuration.`:'Add --project for native room surfaces. Face categories require an explicit --project-config; no openings or audience surfaces are inferred automatically.';
   }
+  const echoPlot=document.getElementById('echogram-plot');
+  const echoBand=document.getElementById('echo-band');
+  for(const hz of data.bands)echoBand.add(new Option(hz+' Hz',hz));
+  const tagged=ray=>ray.openings.length>0||ray.audience.length>0;
+  const echoBands=state=>echoBand.value==='follow'?bandsFor(state):echoBand.value==='study'?data.bands:[Number(echoBand.value)];
+  function echoFileName(state,bands) {
+    const safe=v=>String(v).normalize('NFKD').replace(/[^A-Za-z0-9_-]+/g,'_').replace(/^_+|_+$/g,'').slice(0,55)||'MPC';
+    return [safe(data.title||'MPC'),safe(state.seat),bands.join('-')+'Hz',state.paths,
+      state.hideOpenings?'no-openings':'with-openings',state.hideAudience?'no-audience':'with-audience'].join('_').slice(0,190);
+  }
+  async function renderEchogram(state) {
+    const seat=data.seats.find(s=>s.id===state.seat),bands=echoBands(state);
+    const pair=data.rays.filter(r=>r.seat===state.seat);
+    const reference=pair.filter(r=>r.order===0).sort((a,b)=>a.arrival-b.arrival)[0];
+    const eligible=pair.filter(r=>r.order>0&&(!state.hideOpenings||!r.openings.length)&&(!state.hideAudience||!r.audience.length));
+    const haas=data.haas,curves=haas.times_ms.map((x,i)=>[x,haas.levels_db[i]]);
+    const traces=[],annotations=[],shapes=[],panels=[];
+    const gap=bands.length>1 ? .105 : 0,panelHeight=(1-gap*(bands.length-1))/bands.length;
+    const filterText=[state.paths==='D'?'D candidates only':'All reflected paths',state.hideOpenings?'openings hidden':'openings shown',state.hideAudience?'audience hidden':'audience shown'].join(' · ');
+    const axis=reference?'Delay after direct sound (ms)':'Absolute arrival time (ms)';
+    const layout={height:Math.max(450,290*bands.length+170),width:echoPlot.clientWidth,autosize:true,margin:{l:72,r:25,t:100,b:112},paper_bgcolor:'#fff',plot_bgcolor:'#fff',
+      title:{text:escape(data.title||'MPC')+' · '+escape(seat.label)+'<br><sup>'+escape(filterText)+'</sup>',font:{size:17},x:.055,xanchor:'left'},
+      font:{family:'-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif',size:11,color:'#3c535e'},
+      legend:{orientation:'h',x:0,yref:'container',y:.025,yanchor:'bottom',font:{size:10}},annotations,shapes};
+    const legendSeen=new Set();
+    for(const [index,hz]of bands.entries()) {
+      const xId=index?'x'+(index+1):'x',yId=index?'y'+(index+1):'y';
+      const upper=1-index*(panelHeight+gap),lower=upper-panelHeight;
+      const rows=eligible.filter(r=>state.paths!=='D'||r.metrics[hz].zone==='D');
+      const yValue=r=>reference?r.metrics[hz].level:r.metrics[hz].absolute;
+      const levels=rows.map(yValue).filter(Number.isFinite);
+      const bottom=reference?Math.min(-45,...levels.map(v=>v-3)):levels.length?Math.min(...levels)-5:0;
+      const top=reference?Math.max(14,...levels.map(v=>v+3)):levels.length?Math.max(...levels)+5:100;
+      const times=rows.map(r=>reference?r.delay:r.arrival).filter(Number.isFinite);
+      const xmax=reference?Math.max(100,...times.map(t=>t*1.025)):Math.max(1,...times.map(t=>t*1.025));
+      layout['xaxis'+(index?index+1:'')]={domain:[0,1],anchor:yId,range:[reference?-1.5:0,xmax],title:{text:index===bands.length-1?axis:''},gridcolor:'#edf1f3',zerolinecolor:'#c0ccd4'};
+      layout['yaxis'+(index?index+1:'')]={domain:[lower,upper],anchor:xId,range:[bottom,top],title:{text:reference?'Relative level (dB)':'Saved path level (dB)'},gridcolor:'#edf1f3',zerolinecolor:'#c0ccd4'};
+      const assessed=rows.filter(r=>r.metrics[hz].zone==='D'&&!tagged(r));
+      const setAside=rows.filter(r=>r.metrics[hz].zone==='D'&&tagged(r));
+      const subtitle=reference?`${hz} Hz · ${rows.length} reflected paths · D: ${assessed.length} untagged + ${setAside.length} tagged`:`${hz} Hz · No direct reference; unclassifiable`;
+      annotations.push({xref:'paper',yref:'paper',x:0,y:upper,yshift:22,text:escape(subtitle),showarrow:false,xanchor:'left',font:{size:12}});
+      if(reference) {
+        const shape=(points,colour)=>shapes.push({type:'path',path:'M '+points.map(p=>p[0]+','+p[1]).join(' L ')+' Z',xref:xId,yref:yId,line:{width:0},fillcolor:colour,layer:'below'});
+        const left=curves.filter(p=>p[0]<=50),right=curves.filter(p=>p[0]>=50);
+        shape([[0,top],[50,top],...left.slice().reverse()],'rgba(236,228,206,.55)');
+        shape([[50,bottom],[100,bottom],...right.slice().reverse()],'rgba(231,238,245,.65)');
+        shape([[50,top],[100,top],...right.slice().reverse()],'rgba(244,198,197,.55)');
+        shapes.push({type:'line',xref:xId,yref:yId,x0:50,x1:50,y0:bottom,y1:top,line:{color:'#8b979e',width:1,dash:'dot'}});
+        traces.push({type:'scatter',mode:'lines',x:curves.map(p=>p[0]),y:curves.map(p=>p[1]),xaxis:xId,yaxis:yId,
+          line:{color:'#657681',width:1.3},name:'Approximate Haas boundary',legendgroup:'haas',showlegend:index===0,hoverinfo:'skip'});
+      }
+      for(const isD of [false,true])for(const dashed of [false,true]) {
+        const group=rows.filter(r=>(r.metrics[hz].zone==='D')===isD&&tagged(r)===dashed);
+        if(!group.length)continue;
+        const x=[],y=[],customdata=[],hover=[],sizes=[];
+        for(const ray of group) {
+          const t=reference?ray.delay:ray.arrival,v=yValue(ray),info=labelFor(ray,{...state,band:String(hz)});
+          x.push(t,t,null);y.push(bottom,v,null);customdata.push([ray.id,hz],[ray.id,hz],null);hover.push(info,info,'');sizes.push(0,isD?7:4,0);
+        }
+        const key=(isD?'D':'other')+(dashed?'-tagged':''),name=(isD?'D candidate':'Other reflection')+(dashed?' · tagged (dashed)':'');
+        const colour=isD?'#ba2639':'#247d73';
+        traces.push({type:'scatter',mode:'lines+markers',x,y,xaxis:xId,yaxis:yId,customdata,text:hover,
+          hovertemplate:'%{text}<extra></extra>',name,legendgroup:key,showlegend:!legendSeen.has(key),
+          line:{color:colour,width:1,dash:dashed?'dash':'solid'},marker:{color:colour,size:sizes,symbol:dashed?'diamond-open':'circle'}});
+        legendSeen.add(key);
+      }
+      if(reference)traces.push({type:'scatter',mode:'markers',x:[0],y:[0],xaxis:xId,yaxis:yId,marker:{size:7,color:'#25313c'},
+        name:'Direct reference',legendgroup:'direct',showlegend:index===0,hovertemplate:'Direct sound: 0 ms, 0 dB<extra></extra>'});
+      const selected=rows.find(r=>r.id===pick.ray);
+      if(selected)traces.push({type:'scatter',mode:'markers',x:[reference?selected.delay:selected.arrival],y:[yValue(selected)],xaxis:xId,yaxis:yId,
+        marker:{size:13,color:'#047e9b',symbol:'circle-open',line:{width:2}},showlegend:false,customdata:[[selected.id,hz]],hovertemplate:'Selected path<extra></extra>'});
+      if(!rows.length)annotations.push({xref:'paper',yref:'paper',x:.5,y:(lower+upper)/2,showarrow:false,
+        text:reference?'No reflected paths match these filters.':state.paths==='D'?'D classification unavailable without direct sound.':'No saved reflected paths for this pair.',font:{color:'#697d86'}});
+      panels.push({frequency:hz,rayIds:rows.map(r=>r.id),assessedD:reference?assessed.length:null,taggedD:reference?setAside.length:null,referenceRayId:reference?.id??null});
+    }
+    await Plotly.react(echoPlot,traces,layout,{responsive:true,displaylogo:false,toImageButtonOptions:{format:'png',filename:echoFileName(state,bands),width:1400,height:330*bands.length+190,scale:2}});
+    if(!echoPlot._pathBound){echoPlot.on('plotly_click',event=>{
+      const info=event.points[0]?.customdata;if(!Array.isArray(info))return;
+      const ray=data.rays.find(r=>r.id===info[0]);if(!ray||ray.order===0)return;
+      if(!chosen(ray,snapshot()))el.band.value=String(info[1]);
+      pick.ray=ray.id;pick.face=null;update();
+    });echoPlot._pathBound=true;}
+    api.echogram={bands,panels,reference:!!reference,filename:echoFileName(state,bands),filters:filterText};
+    document.getElementById('echo-summary').textContent=reference
+      ?'Each band uses its own direct arrival as 0 ms and 0 dB. The Haas curve is approximate; counts are individual paths. Tagged paths remain dashed when shown.'
+      :'No direct arrival is saved for this source/receiver. Levels and arrival times are absolute; no Haas curve or D classification is applied.';
+  }
+  api.downloadEchogram=async()=>{
+    const button=document.getElementById('echo-download');button.disabled=true;
+    try{await api.ready;return await Plotly.downloadImage(echoPlot,{format:'png',filename:api.echogram.filename,width:1400,height:330*api.echogram.bands.length+190,scale:2});}
+    finally{button.disabled=false;}
+  };
+  echoBand.onchange=()=>update();
+  document.getElementById('echo-download').onclick=()=>api.downloadEchogram().catch(e=>{document.getElementById('echo-summary').textContent='PNG download failed: '+e.message;});
+  api.setEchogramFrequency=value=>{if(value!=='follow'&&value!=='study'&&!data.bands.includes(Number(value)))throw new Error('Frequency not exported');echoBand.value=String(value);return update();};
   const roomTrace = {
     type:'scatter3d',mode:'lines',name:'Room outline',showlegend:false,hoverinfo:'skip',
     x:[],y:[],z:[],line:{color:'#c0ccd4',width:1},opacity:.5
@@ -136,11 +231,10 @@
     const traces=[];
     if(el.surfaces.checked && mesh)traces.push(mesh);
     if (state.room) traces.push(roomTrace);
-    const solid=physical.filter(r=>!r.audience.length);
-    const dashed=physical.filter(r=>r.audience.length);
+    const solid=visible.filter(r=>!r.openings.length&&!r.audience.length);
+    const dashed=visible.filter(r=>r.openings.length||r.audience.length);
     const hasReference=data.rays.some(r=>r.seat===state.seat&&r.order===0);
     const scale=state.colour==='order'||!hasReference?null:scaleFor(state);
-    if(visibleOpening.length)traces.push(pathTrace(visibleOpening,state,{name:`Opening-dependent (${visibleOpening.length})`,colour:grey,ghost:true,dashed:true}));
     if (state.colour==='order') {
       for (const order of [1,2,3,4]) {
         const ordinary=solid.filter(r=>r.order===order),special=dashed.filter(r=>r.order===order);
@@ -150,7 +244,7 @@
       }
     } else {
       if(solid.length)traces.push(pathTrace(solid,state,{name:`Solid reflections (${solid.length})`,colour:grey},scale));
-      if(dashed.length)traces.push(pathTrace(dashed,state,{name:`Audience reflections (${dashed.length})`,colour:grey,dashed:true,showScale:!solid.length},scale));
+      if(dashed.length)traces.push(pathTrace(dashed,state,{name:`Opening / audience reflections (${dashed.length})`,colour:grey,dashed:true,showScale:!solid.length},scale));
     }
     const direct=data.rays.find(r=>r.seat===state.seat&&r.order===0);
     if (direct) {
@@ -189,6 +283,7 @@
     document.getElementById('status').textContent=`${bandNote} · ${state.paths==='D'?'D candidates only':'All saved reflected paths'} · ${state.hideOpenings?'Opening-dependent paths hidden':'Opening-dependent paths shown dashed'} · ${state.hideAudience?'Audience reflections hidden':'Audience reflections shown dashed'}`;
     document.getElementById('empty').hidden=api.stats.visible!==0;
     updateInspector(state,visible);
+    await renderEchogram(state);
     plot.setAttribute('aria-label',`${seat.label}: ${api.stats.visible} visible reflected paths; ${physical.length} from physical surfaces.`);
     return api.stats;
   }
@@ -207,7 +302,10 @@
   for(const id of ['seat','paths','band','colour','hide-openings','hide-audience','room','surfaces'])el[id].addEventListener('change',update);
   let resize;
   window.addEventListener('resize',()=>{clearTimeout(resize);resize=setTimeout(()=>api.ready.then(()=>{
-    if(plot.isConnected&&plot._fullLayout)return Plotly.relayout(plot,{width:plot.clientWidth,height:plot.clientHeight});
+    const jobs=[];
+    if(plot.isConnected&&plot._fullLayout)jobs.push(Plotly.relayout(plot,{width:plot.clientWidth,height:plot.clientHeight}));
+    if(echoPlot.isConnected&&echoPlot._fullLayout)jobs.push(Plotly.relayout(echoPlot,{width:echoPlot.clientWidth}));
+    return Promise.all(jobs);
   }).catch(()=>{}),100);});
   el.reset.addEventListener('click',()=>Plotly.relayout(plot,{'scene.camera':camera}));
   installInspector();

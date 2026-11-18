@@ -3,10 +3,15 @@ import html
 import json
 import math
 from pathlib import Path
-from .haas import boundary, classify
+from .haas import boundary, classify, TIMES, LEVELS
 from .project import polygon_geometry, triangulate, project_summary
 from .project_config import ray_categories
 from .reader import MPCError
+
+ECHOGRAM_SECTION = '''<section class="echogram-inspector" aria-labelledby="echo-title">
+<div class="echo-toolbar"><h2 id="echo-title">Echogram inspector</h2><label>Frequency<select id="echo-band"><option value="follow">Match 3D frequency</option><option value="study">All selected bands</option></select></label><button id="echo-download" type="button">Download PNG</button></div>
+<div id="echogram-plot" role="img" aria-label="Echogram of the selected source and receiver"></div><p id="echo-summary" aria-live="polite"></p>
+<p class="echo-help">The source/receiver, opening/audience hide switches and all/D mode follow the 3D view. D filtering is applied at each displayed frequency. Click a peak to inspect its path. Red marks D candidates; dashed peaks involve tagged openings or audience surfaces. Peaks are individual saved paths, without energy summation.</p></section>'''
 
 
 def export_viewer(dataset,output,frequencies,context_edges=(),project=None,config=None,audit=None):
@@ -51,7 +56,8 @@ def export_viewer(dataset,output,frequencies,context_edges=(),project=None,confi
     limits=[]
     for axis in range(3):
         lo=min((p[axis] for p in points),default=0);hi=max((p[axis] for p in points),default=1);pad=max(.5,(hi-lo)*.035);limits.append([lo-pad,hi+pad])
-    payload={'bands':frequencies,'seats':pairs,'rays':records,'edges':edges,'limits':limits,'faces':faces,
+    payload={'title':dataset.path.stem,'bands':frequencies,'seats':pairs,'rays':records,'edges':edges,'limits':limits,'faces':faces,
+             'haas':{'times_ms':TIMES,'levels_db':LEVELS,'reference':'Approximate assignment Haas curve; 0–100 ms after direct sound'},
              'project':project_summary(project,audit) if project else None,'config':config,'sha256':dataset.sha256}
     css=Path(__file__).with_name('viewer.css').read_text(encoding='utf-8');js=Path(__file__).with_name('viewer.js').read_text(encoding='utf-8')
     title=html.escape(dataset.path.stem)
@@ -66,8 +72,9 @@ def export_viewer(dataset,output,frequencies,context_edges=(),project=None,confi
 <div class="plot-head"><div><h2 id="view-title">Loading…</h2><p id="colour-note"></p></div><span class="axis-note">Z vertical · metres</span></div>
 <div id="plot"></div><p id="empty" hidden>No reflected paths match these filters. Direct sound, when available, remains as a reference.</p><p id="status"></p>
 <section class="inspect"><label>Inspect a visible path<select id="ray-pick"><option value="">Choose a path…</option></select></label><label>Inspect a project face<select id="face-pick"><option value="">Choose a face…</option></select></label><button id="clear-pick">Clear selection</button><div id="ray-info"></div><div id="face-info"></div><div id="material-chart" hidden></div></section>
-<details><summary>Interpretation and provenance</summary><div class="help"><p>Recorded paths only; no new ray tracing or acoustic simulation is performed. The MPC supplies source/receiver positions, paths and saved levels. Project materials are a separate snapshot, not verified as the materials used to calculate the MPC.</p><p>Relative-level colours use each pair’s direct sound. With several bands selected, each path uses its largest selected value. D means an approximate assignment Haas criterion over 0–100 ms, not a universal echo standard. A pair with no direct arrival has no direct reference; unclassifiable. Its saved paths remain available in order colours, with absolute levels in their details.</p><p>Grey paths are tagged opening-dependent by the optional configuration, using face IDs, material names or saved face colours. Opening and audience filters remove complete paths from the display, preserving all data. Audience filtering does not simulate scattering. No project-specific face IDs or material-name guesses are built into the tool.</p><p>Click a path or use its selector to highlight the whole route and the matching project faces. Enable translucent surfaces to click a face. The face inspector shows RGB, hex and EASE colour values for colour-based rules. These are saved face colours, not recovered CAD layer names or AutoCAD ACI indices. A face’s normal follows its stored vertex order. Missing material curves are shown as unavailable, never as zero absorption or scattering.</p><p id="project-details"></p></div></details><footer>Offline single-file viewer · INPUTS retained · Project and MPC files are read-only.</footer>
+ECHOGRAM_SECTION
+<details><summary>Interpretation and provenance</summary><div class="help"><p>Recorded paths only; no new ray tracing or acoustic simulation is performed. The MPC supplies source/receiver positions, paths and saved levels. Project materials are a separate snapshot, not verified as the materials used to calculate the MPC.</p><p>Relative-level colours use each pair’s direct sound. With several bands selected, each path uses its largest selected value. D means an approximate assignment Haas criterion over 0–100 ms, not a universal echo standard. A pair with no direct arrival has no direct reference; unclassifiable. Its saved paths remain available in order colours, with absolute levels in their details.</p><p>Dashed coloured paths are tagged as opening- or audience-dependent by the optional configuration, using face IDs, material names or saved face colours. They retain the selected order or dB colours. Opening and audience filters remove complete paths from the display, preserving all data. Audience filtering does not simulate scattering. No project-specific face IDs or material-name guesses are built into the tool.</p><p>Click a path or use its selector to highlight the whole route and the matching project faces. Enable translucent surfaces to click a face. The face inspector shows RGB, hex and EASE colour values for colour-based rules. These are saved face colours, not recovered CAD layer names or AutoCAD ACI indices. A face’s normal follows its stored vertex order. Missing material curves are shown as unavailable, never as zero absorption or scattering.</p><p>The echogram inspector uses these same saved levels, an independently selectable frequency, and the current source/receiver and path-category filters. Its colours identify D candidates independently of the 3D colour mode. PNG export includes the displayed bands and current filters. A chart without direct sound uses absolute arrival times and levels, with no Haas curve.</p><p id="project-details"></p></div></details><footer>Offline single-file viewer · INPUTS retained · Project and MPC files are read-only.</footer>
 </main><script>PLOTLY</script><script id="reflection-data" type="application/json">DATA</script><script>APP</script></body></html>'''
-    template=template.replace('TITLE',title).replace('INPUTS',str(len(records))+' saved paths')
+    template=template.replace('TITLE',title).replace('INPUTS',str(len(records))+' saved paths').replace('\nECHOGRAM_SECTION\n','\n'+ECHOGRAM_SECTION+'\n')
     template=template.replace('<style>CSS</style>','<style>'+css+'</style>').replace('<script>PLOTLY</script>','<script>'+get_plotlyjs()+'</script>').replace('>DATA</script>','>'+json.dumps(payload,ensure_ascii=True,allow_nan=False,separators=(',',':')).replace('<','\\u003c')+'</script>').replace('<script>APP</script>','<script>'+js+'</script>')
     path=Path(output)/'ray_viewer.html';path.write_text(template,encoding='utf-8');return [path]

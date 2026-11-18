@@ -58,6 +58,16 @@ D-only views skip receiver/source pairs without D candidates. A pair with no sav
 
 The HTML viewer works offline in a browser. It has source/receiver selection, all/D paths, frequency, order/relative-level/Haas-excess colours, category filters, and path inspection. GLB files contain **line primitives**, so use a glTF viewer supporting lines. The GLBs contain recorded paths, not reconstructed walls. Their coordinates are in metres; GLB converts MPC `(X,Y,Z)` to glTF `(X,Z,-Y)` to preserve vertical orientation.
 
+### Echogram inspector and PNG export (1.4)
+
+Below the path/face inspectors, the viewer includes an **Echogram inspector**. Its frequency selector can follow the 3D view, show one of the exported bands, or stack all exported bands. The source/receiver, opening/audience hide switches and all/D mode are shared with the 3D view; D filtering is evaluated at each chart's displayed frequency.
+
+Each band is normalised to its own direct arrival at 0 ms and 0 dB, with the approximate assignment Haas curve over 0–100 ms. If the pair has no direct arrival, the chart uses absolute arrival times and saved levels, with no Haas classification. A no-arrivals or no-D view is labelled explicitly.
+
+Click a peak to highlight that saved path and its project faces in the inspectors and 3D view. If needed, the 3D frequency follows the clicked band so a D-only path can be inspected. Chart colours identify D candidates independently of the 3D colour mode. Tagged opening/audience paths use dashed lines and remain in the data; filtering is a display choice, not a new acoustic calculation.
+
+**Download PNG** saves a high-resolution image of the currently displayed echogram bands, including the source/receiver, frequencies, active filters, legend and Haas reference. Choose a single frequency for a single-band PNG, or all bands for a stacked PNG. It works offline and exports individual saved paths without time-bin summation or a generated reverberation tail. The frequency list contains the bands requested during export; use `--frequencies` to include additional MPC bands.
+
 ## Optional: identify openings and audience
 
 Tell the viewer which faces represent openings or audience surfaces by saving a **JSON configuration file** and passing it with `--project-config`. These tags are optional: without a configuration, the tool does not automatically identify either category.
@@ -156,7 +166,7 @@ You can combine face IDs, materials and colours in the same category:
 
 A face matches if its ID **or** either material name **or** its colour matches. A base ID such as `F2` also tags its mirrored `F2*`; listing only `F2*` tags that mirrored face alone. Colour rules also apply to mirrored faces. Check ID-based rules again after reimporting or renumbering the room.
 
-If any bounce along a path touches a tagged face, the **whole path** receives that category. A path can be tagged as both opening-dependent and audience-dependent. In `ray_viewer.html`, use **Hide opening-dependent paths** and **Hide audience paths** independently. Opening-dependent paths remain grey/dashed when shown. All saved paths remain in the data; these controls do not delete rays, recalculate acoustics, or replace the audience with a scattering simulation. The original echograms/arrival tables retain their MPC results, and `path_categories.csv` records the tags when a configuration is supplied.
+If any bounce along a path touches a tagged face, the **whole path** receives that category. A path can be tagged as both opening-dependent and audience-dependent. In `ray_viewer.html`, use **Hide opening-dependent paths** and **Hide audience paths** independently. Both categories use dashed lines with the selected order or dB colours when shown. All saved paths remain in the data; these controls do not delete rays, recalculate acoustics, or replace the audience with a scattering simulation. Static echograms/arrival tables retain their MPC results; the interactive echogram follows the viewer's display filters. `path_categories.csv` records the tags when a configuration is supplied.
 
 ## Native EASE project support (1.3)
 
@@ -196,7 +206,7 @@ python3 mpc_echograms.py "/path/to/results.mpc" \
   --project "/path/to/project.frd" --project-config config.json --all-outputs
 ```
 
-Categories match face IDs or front/rear material names. No theatre-specific IDs, layer names or guessed semantics are built into the code. Filtering opening/audience paths changes the viewer only; original echograms and arrival tables retain the saved MPC data. Missing direct sound remains unclassifiable. Audience filtering is not a scattering simulation.
+Categories match face IDs, front/rear material names or saved face colours. No theatre-specific IDs, layer names or guessed semantics are built into the code. Filtering opening/audience paths changes the 3D view and interactive echogram only; static echograms and arrival tables retain the saved MPC data. Missing direct sound remains unclassifiable. Audience filtering is not a scattering simulation.
 
 Material curves supplied in the configuration need increasing frequencies, coefficients in [0,1], and a `source` string. They are shown with their provenance when a face is inspected. They are **not** asserted to be the coefficients used by the MPC. Missing curves are displayed as unavailable. The project material snapshot is always labelled separately from MPC results.
 
